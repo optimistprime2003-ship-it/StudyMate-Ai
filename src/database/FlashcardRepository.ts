@@ -1,5 +1,5 @@
 import { getDb } from './DatabaseService';
-import type { Flashcard } from '../components/ModuleConnector';
+import type { Flashcard, FlashcardRow } from '../components/ModuleConnector';
 
 const DIFFICULTY_INTERVALS: Record<string, number> = {
   easy: 4 * 24 * 60 * 60 * 1000,       // 4 days
@@ -12,7 +12,7 @@ function getNextReview(difficulty: string): string {
   return new Date(Date.now() + interval).toISOString();
 }
 
-export async function saveFlashcards(cards: Flashcard[]): Promise<void> {
+export async function saveFlashcards(cards: FlashcardRow[]): Promise<void> {
   const db = getDb();
   db.withTransactionSync(() => {
     for (const card of cards) {
@@ -35,13 +35,44 @@ export async function saveFlashcards(cards: Flashcard[]): Promise<void> {
   });
 }
 
-export async function getFlashcards(documentId: string): Promise<Flashcard[]> {
+export async function saveBasicFlashcard(card: Flashcard, difficulty: FlashcardRow['difficulty'] = 'medium'): Promise<void> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const row: FlashcardRow = {
+    id: card.id,
+    document_id: card.documentId,
+    question: card.question,
+    answer: card.answer,
+    difficulty,
+    times_reviewed: 0,
+    last_reviewed: null,
+    next_review: getNextReview(difficulty),
+  };
+  db.runSync(
+    `INSERT OR REPLACE INTO flashcards
+     (id, document_id, question, answer, difficulty, times_reviewed, last_reviewed, next_review)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [row.id, row.document_id, row.question, row.answer, row.difficulty, row.times_reviewed, row.last_reviewed, row.next_review],
+  );
+}
+
+export async function getFlashcards(documentId: string): Promise<FlashcardRow[]> {
   const db = getDb();
   const rows = db.getAllSync<any>(
     `SELECT * FROM flashcards WHERE document_id = ? ORDER BY id`,
     [documentId],
   );
   return rows.map(rowToFlashcard);
+}
+
+export async function getBasicFlashcards(documentId: string): Promise<Flashcard[]> {
+  const rows = await getFlashcards(documentId);
+  return rows.map((row) => ({
+    id: row.id,
+    question: row.question,
+    answer: row.answer,
+    documentId: row.document_id,
+  }));
 }
 
 export async function markReviewed(
@@ -55,7 +86,7 @@ export async function markReviewed(
   );
   if (!row) return;
 
-  let newDifficulty: Flashcard['difficulty'] = row.difficulty;
+  let newDifficulty: FlashcardRow['difficulty'] = row.difficulty;
   if (correct) {
     if (newDifficulty === 'hard') newDifficulty = 'medium';
     else if (newDifficulty === 'medium') newDifficulty = 'easy';
@@ -73,7 +104,7 @@ export async function markReviewed(
   );
 }
 
-export async function getDueCards(documentId: string): Promise<Flashcard[]> {
+export async function getDueCards(documentId: string): Promise<FlashcardRow[]> {
   const db = getDb();
   const now = new Date().toISOString();
   const rows = db.getAllSync<any>(
@@ -83,7 +114,7 @@ export async function getDueCards(documentId: string): Promise<Flashcard[]> {
   return rows.map(rowToFlashcard);
 }
 
-function rowToFlashcard(row: any): Flashcard {
+function rowToFlashcard(row: any): FlashcardRow {
   return {
     id: row.id,
     document_id: row.document_id,

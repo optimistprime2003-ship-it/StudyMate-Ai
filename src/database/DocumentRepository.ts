@@ -1,7 +1,24 @@
 import { getDb } from './DatabaseService';
-import type { Document, ReadingProgress } from '../components/ModuleConnector';
+import type { Document, DocumentRow, ReadingProgress } from '../components/ModuleConnector';
 
 export async function saveDocument(doc: Document): Promise<void> {
+  const db = getDb();
+  const createdAt = typeof doc.createdAt === 'number'
+    ? new Date(doc.createdAt).toISOString()
+    : new Date().toISOString();
+  const lastOpened = doc.lastOpened
+    ? new Date(doc.lastOpened).toISOString()
+    : null;
+
+  db.runSync(
+    `INSERT OR REPLACE INTO documents
+     (id, title, type, path, size, created_at, last_opened, page_count, has_real_text, summary_short, summary_detailed)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL)`,
+    [doc.id, doc.title, doc.type, doc.path, doc.size, createdAt, lastOpened],
+  );
+}
+
+export async function saveDocumentRow(doc: DocumentRow): Promise<void> {
   const db = getDb();
   db.runSync(
     `INSERT OR REPLACE INTO documents
@@ -31,6 +48,16 @@ export async function getDocument(id: string): Promise<Document | null> {
   );
   if (!row) return null;
   return rowToDocument(row);
+}
+
+export async function getDocumentRow(id: string): Promise<DocumentRow | null> {
+  const db = getDb();
+  const row = db.getFirstSync<any>(
+    `SELECT * FROM documents WHERE id = ?`,
+    [id],
+  );
+  if (!row) return null;
+  return rowToDocumentRow(row);
 }
 
 export async function getAllDocuments(): Promise<Document[]> {
@@ -112,6 +139,18 @@ export async function getExtractedText(documentId: string): Promise<string[]> {
 }
 
 function rowToDocument(row: any): Document {
+  return {
+    id: row.id,
+    title: row.title,
+    type: row.type as any,
+    path: row.path,
+    size: row.size,
+    createdAt: new Date(row.created_at).getTime(),
+    lastOpened: row.last_opened ? new Date(row.last_opened).getTime() : 0,
+  };
+}
+
+function rowToDocumentRow(row: any): DocumentRow {
   return {
     id: row.id,
     title: row.title,

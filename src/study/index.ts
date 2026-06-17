@@ -5,7 +5,19 @@ export { default as StudyDashboard } from './StudyDashboard';
 export * as ExportService from './ExportService';
 
 // Types re-exported from ModuleConnector
-export type { Document, ChatMessage, Flashcard } from '../components/ModuleConnector';
+export type {
+  Document,
+  ChatMessage,
+  Flashcard,
+  DocumentRow,
+  FlashcardRow,
+  ChatMessageRow,
+  StudySession,
+  QuizQuestion,
+  Note,
+  ReadingProgress,
+  SearchResult,
+} from '../components/ModuleConnector';
 
 // npm packages used: expo-sqlite, expo-file-system, @react-native-async-storage/async-storage,
 //   react-native-reanimated, react-native-gesture-handler, lucide-react-native

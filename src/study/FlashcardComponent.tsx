@@ -23,11 +23,11 @@ import {
   Check,
   X,
 } from 'lucide-react-native';
-import type { Flashcard } from '../components/ModuleConnector';
+import type { FlashcardRow } from '../components/ModuleConnector';
 
 interface FlashcardComponentProps {
-  cards: Flashcard[];
-  onRate: (cardId: string, difficulty: Flashcard['difficulty']) => void;
+  cards: FlashcardRow[];
+  onRate: (cardId: string, difficulty: FlashcardRow['difficulty']) => void;
   onComplete: (reviewed: number, correct: number) => void;
 }
 
@@ -104,7 +104,7 @@ export default function FlashcardComponent({
   }, [isFlipped]);
 
   const handleRate = useCallback(
-    (difficulty: Flashcard['difficulty']) => {
+    (difficulty: FlashcardRow['difficulty']) => {
       if (!currentCard) return;
       const isCorrect = difficulty === 'easy' || difficulty === 'medium';
       onRate(currentCard.id, difficulty);

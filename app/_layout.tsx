@@ -1,3 +1,6 @@
+import { useAppStore } from '../src/store/appStore';
+import { DatabaseService } from '../src/database/DatabaseService';
+import { TTSService } from '../src/tts/TTSService';
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -23,7 +26,17 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    hydrate().then(() => setReady(true));
+    const initApp = async () => {
+      await hydrate();
+      try {
+        await DatabaseService.initialize();
+        await TTSService.initialize();
+      } catch (error) {
+        console.error('App init error:', error);
+      }
+      setReady(true);
+    };
+    initApp();
   }, []);
 
   useEffect(() => {

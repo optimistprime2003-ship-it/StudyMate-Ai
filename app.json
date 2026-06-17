@@ -2,14 +2,23 @@
   "expo": {
     "name": "StudyMate AI",
     "slug": "studymate-ai",
+    "owner": "hiltonmans-team",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "studymate",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#6366F1"
+      },
+      "package": "com.hiltonmans.studymateai"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hiltonmans.studymateai"
     },
     "web": {
       "bundler": "metro",
@@ -19,19 +28,15 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-web-browser",
-      [
-        "llama.rn",
-        {
-          "enableEntitlements": true,
-          "entitlementsProfile": "production",
-          "forceCxx20": true,
-          "enableOpenCL": true
-        }
-      ]
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "PASTE-YOUR-PROJECT-ID-HERE"
+      }
     }
   }
 }

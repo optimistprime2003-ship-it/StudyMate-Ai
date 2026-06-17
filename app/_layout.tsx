@@ -1,6 +1,3 @@
-import { useAppStore } from '../src/store/appStore';
-import { DatabaseService } from '../src/database/DatabaseService';
-import { TTSService } from '../src/tts/TTSService';
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -11,6 +8,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { useAppStore } from '../src/store/appStore';
 import { lightTheme, darkTheme } from '../src/theme/theme';
+import { DatabaseService } from '../src/database/DatabaseService';
+import { TTSService } from '../src/tts/TTSService';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -81,7 +80,7 @@ function RootNavigator({ isDark }: { isDark: boolean }) {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? 'light' : 'dark' } />
     </>
   );
 }

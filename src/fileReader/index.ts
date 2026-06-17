@@ -5,7 +5,6 @@ export {
   getFileSize,
   shareFile,
   SUPPORTED_EXTENSIONS,
-  APP_STORAGE_DIR,
 } from './FileImportService';
 export type { ImportResult } from './FileImportService';
 

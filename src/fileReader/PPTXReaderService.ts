@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 
 export interface SlideContent {
   slideNumber: number;
@@ -116,8 +116,8 @@ function parsePptBinary(binaryString: string): SlideContent[] {
 
 export async function readPPTX(filePath: string): Promise<PPTXReadResult> {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
+    const file = new File(filePath);
+    if (!file.exists) {
       throw new Error('NOT_FOUND');
     }
 
@@ -140,9 +140,8 @@ export async function readPPTX(filePath: string): Promise<PPTXReadResult> {
 }
 
 async function readPptxFile(filePath: string): Promise<PPTXReadResult> {
-  const base64 = await FileSystem.readAsStringAsync(filePath, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const file = new File(filePath);
+  const base64 = await file.base64();
 
   const binaryString = atob(base64);
   const slides = parseSlidesFromBinary(binaryString);
@@ -154,9 +153,8 @@ async function readPptxFile(filePath: string): Promise<PPTXReadResult> {
 }
 
 async function readPptFile(filePath: string): Promise<PPTXReadResult> {
-  const base64 = await FileSystem.readAsStringAsync(filePath, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const file = new File(filePath);
+  const base64 = await file.base64();
 
   const binaryString = atob(base64);
   const slides = parsePptBinary(binaryString);

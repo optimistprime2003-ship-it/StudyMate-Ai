@@ -135,13 +135,11 @@ class TTSServiceClass {
 
   async getAvailableVoices(): Promise<TTSVoice[]> {
     const voices = await Speech.getAvailableVoicesAsync();
-    return voices
-      .filter((v) => !v.networkConnectionRequired)
-      .map((v) => ({
-        id: v.identifier || v.language,
-        name: v.name || v.language,
-        language: v.language,
-      }));
+    return voices.map((v) => ({
+      id: v.identifier || v.language,
+      name: v.name || v.language,
+      language: v.language,
+    }));
   }
 
   onWordBoundary(callback: SentenceBoundaryCallback): void {

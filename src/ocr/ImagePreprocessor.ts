@@ -7,19 +7,8 @@ export async function preprocessImage(
   imagePath: string,
   options: PreprocessOptions = {}
 ): Promise<PreprocessResult> {
-  const actions: ReturnType<typeof manipulateAsync> extends Promise<
-    infer R extends { width: number; height: number }
-  >
-    ? never
-    : never = [];
-
-  const manipActions: any[] = [];
-
   // Resize to optimal OCR resolution
   const targetWidth = options.resize?.width ?? OPTIMAL_OCR_WIDTH;
-  manipActions.push({
-    resize: { width: targetWidth },
-  });
 
   // Note: expo-image-manipulator doesn't have native grayscale/contrast
   // We apply what's available. On native, ML Kit handles preprocessing
@@ -27,7 +16,7 @@ export async function preprocessImage(
 
   const result = await manipulateAsync(
     imagePath,
-    manipActions,
+    [{ resize: { width: targetWidth } }],
     {
       format: SaveFormat.JPEG,
       compress: 0.9,

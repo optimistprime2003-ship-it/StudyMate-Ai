@@ -5,13 +5,24 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  ProgressBar,
-  ProgressBarAndroid,
-  Platform,
 } from 'react-native';
 import { CameraView, CameraType } from 'expo-camera';
 import { processCapturedImage, extractTextFromScannedPDF } from './OCRService';
 import type { OCRResult } from './types';
+
+// Custom ProgressBar component since react-native doesn't export ProgressBar
+function ProgressBar({ progress, color }: { progress: number; color: string }) {
+  return (
+    <View style={styles.progressBarTrack}>
+      <View
+        style={[
+          styles.progressBarFill,
+          { width: `${Math.min(Math.max(progress, 0), 1) * 100}%`, backgroundColor: color },
+        ]}
+      />
+    </View>
+  );
+}
 
 interface OCRProgressProps {
   /** PDF path for scanned PDF OCR mode */
@@ -27,8 +38,6 @@ interface OCRProgressProps {
 }
 
 type OCRPhase = 'idle' | 'camera' | 'processing' | 'complete' | 'error';
-
-const Progress = Platform.OS === 'android' ? ProgressBarAndroid : ProgressBar;
 
 export default function OCRProgressComponent({
   pdfPath,
@@ -181,17 +190,7 @@ export default function OCRProgressComponent({
           <Text style={styles.scanningText}>
             Scanning page {currentPage} of {totalPages}...
           </Text>
-          <View style={styles.progressBarContainer}>
-            {Platform.OS === 'android' ? (
-              <ProgressBarAndroid
-                styleAttr="Horizontal"
-                color="#0A84FF"
-                progress={progress}
-              />
-            ) : (
-              <ProgressBar progress={progress} color="#0A84FF" />
-            )}
-          </View>
+          <ProgressBar progress={progress} color="#0A84FF" />
           <Text style={styles.progressPercent}>
             {Math.round(progress * 100)}%
           </Text>
@@ -335,11 +334,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  progressBarContainer: {
+  progressBarTrack: {
     width: '100%',
     height: 8,
     borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  progressBarFill: {
+    height: 8,
+    borderRadius: 4,
   },
   progressPercent: {
     color: '#0A84FF',

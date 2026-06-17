@@ -1,6 +1,5 @@
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { PDFDocument } from 'pdf-lib';
-import { CameraView, CameraType } from 'expo-camera';
 import { preprocessForOCR } from './ImagePreprocessor';
 import type { OCRResult, OCRBlock, OCRLine } from './types';
 
@@ -16,34 +15,18 @@ export async function detectHasText(pdfPath: string): Promise<boolean> {
     const pages = pdfDoc.getPages();
 
     for (const page of pages) {
-      const textContent = page.getTextContent?.();
-      if (textContent) {
-        const items = textContent.items as Array<{ str: string }> | undefined;
-        if (items && items.length > 0) {
-          const combinedText = items.map((i) => i.str).join('').trim();
-          if (combinedText.length > 10) {
-            return true;
-          }
-        }
-      }
-
       // pdf-lib doesn't expose getTextContent directly like pdfjs-dist.
       // We check for text objects in the page content stream.
       // If a page has text operators (Tj, TJ, etc.), it has real text.
-      const pageText = page.node.Contents();
-      if (pageText) {
-        // If the page content references streams with text operators,
-        // consider it has real text
-        const contentRef = page.node.get('Contents' as any);
-        if (contentRef) {
-          // Fallback heuristic: count page resources that look like fonts
-          const resources = page.node.get('Resources' as any);
-          if (resources) {
-            const font = resources.get('Font' as any);
-            if (font && font.size() > 0) {
-              // Has fonts defined — likely has real text
-              return true;
-            }
+      const contents = page.node.Contents();
+      if (contents) {
+        // If the page content references fonts, it likely has text
+        const resources = page.node.Resources();
+        if (resources) {
+          const fontDict = resources.lookup('Font' as any);
+          if (fontDict) {
+            // Has fonts defined — likely has real text
+            return true;
           }
         }
       }
@@ -70,21 +53,18 @@ export async function extractTextFromImage(imagePath: string): Promise<OCRResult
 
   const blocks: OCRBlock[] = (result.blocks ?? []).map((block) => ({
     text: block.text,
-    confidence: block.confidence ?? 0,
+    confidence: 1, // ML Kit doesn't provide confidence scores
   }));
 
   const lines: OCRLine[] = (result.blocks ?? []).flatMap((block) =>
     (block.lines ?? []).map((line) => ({
       text: line.text,
-      confidence: line.confidence ?? 0,
+      confidence: 1, // ML Kit doesn't provide confidence scores
     }))
   );
 
   const fullText = result.text ?? '';
-  const avgConfidence =
-    blocks.length > 0
-      ? blocks.reduce((sum, b) => sum + b.confidence, 0) / blocks.length
-      : 0;
+  const avgConfidence = 1; // Default confidence since ML Kit doesn't provide it
 
   return {
     text: fullText,

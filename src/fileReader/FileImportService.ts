@@ -1,9 +1,11 @@
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import { Paths, Directory, File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Document, DocumentType } from '../components/ModuleConnector';
 
-const APP_STORAGE_DIR = `${FileSystem.documentDirectory}StudyMateDocs/`;
+function getStorageDir(): Directory {
+  return new Directory(Paths.document, 'StudyMateDocs');
+}
 
 const SUPPORTED_EXTENSIONS: DocumentType[] = [
   'pdf',
@@ -69,11 +71,12 @@ function resolveDocumentType(
   return null;
 }
 
-async function ensureStorageDir(): Promise<void> {
-  const dirInfo = await FileSystem.getInfoAsync(APP_STORAGE_DIR);
-  if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(APP_STORAGE_DIR, { intermediates: true });
+function ensureStorageDir(): Directory {
+  const dir = getStorageDir();
+  if (!dir.exists) {
+    Paths.document.createDirectory('StudyMateDocs');
   }
+  return dir;
 }
 
 function friendlyError(code: string): string {
@@ -122,33 +125,25 @@ export async function importFile(): Promise<ImportResult> {
       return { success: false, error: friendlyError('FILE_TOO_LARGE') };
     }
 
-    await ensureStorageDir();
+    const storageDir = ensureStorageDir();
 
     const safeName = asset.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const destPath = `${APP_STORAGE_DIR}${generateId()}_${safeName}`;
+    const destFile = storageDir.createFile(`${generateId()}_${safeName}`, asset.mimeType || 'application/octet-stream');
 
-    const copyResult = await FileSystem.copyAsync({
-      from: asset.uri,
-      to: destPath,
-    });
+    const sourceFile = new File(asset.uri);
+    const bytes = await sourceFile.bytes();
+    destFile.write(bytes);
 
-    if (!copyResult) {
-      const destInfo = await FileSystem.getInfoAsync(destPath);
-      if (!destInfo.exists) {
-        return { success: false, error: friendlyError('COPY_FAILED') };
-      }
-    }
-
-    const fileInfo = await FileSystem.getInfoAsync(destPath);
-    const fileSize = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size as number) : asset.size ?? 0;
+    const fileSize = destFile.exists ? destFile.size : (asset.size ?? 0);
 
     const document: Document = {
       id: generateId(),
       title: asset.name.replace(/\.[^/.]+$/, ''),
       type: docType,
-      path: destPath,
+      path: destFile.uri,
       size: fileSize,
-      createdAt: new Date().toISOString(),
+      createdAt: Date.now(),
+      lastOpened: Date.now(),
     };
 
     return { success: true, document };
@@ -168,26 +163,25 @@ export async function importSharedFile(sharedUri: string, fileName: string): Pro
       return { success: false, error: friendlyError('UNSUPPORTED_TYPE') };
     }
 
-    await ensureStorageDir();
+    const storageDir = ensureStorageDir();
 
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const destPath = `${APP_STORAGE_DIR}${generateId()}_${safeName}`;
+    const destFile = storageDir.createFile(`${generateId()}_${safeName}`, 'application/octet-stream');
 
-    await FileSystem.copyAsync({
-      from: sharedUri,
-      to: destPath,
-    });
+    const sourceFile = new File(sharedUri);
+    const bytes = await sourceFile.bytes();
+    destFile.write(bytes);
 
-    const fileInfo = await FileSystem.getInfoAsync(destPath);
-    const fileSize = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size as number) : 0;
+    const fileSize = destFile.exists ? destFile.size : 0;
 
     const document: Document = {
       id: generateId(),
       title: fileName.replace(/\.[^/.]+$/, ''),
       type: docType,
-      path: destPath,
+      path: destFile.uri,
       size: fileSize,
-      createdAt: new Date().toISOString(),
+      createdAt: Date.now(),
+      lastOpened: Date.now(),
     };
 
     return { success: true, document };
@@ -198,9 +192,9 @@ export async function importSharedFile(sharedUri: string, fileName: string): Pro
 
 export async function deleteFile(path: string): Promise<boolean> {
   try {
-    const info = await FileSystem.getInfoAsync(path);
-    if (info.exists) {
-      await FileSystem.deleteAsync(path);
+    const file = new File(path);
+    if (file.exists) {
+      file.delete();
     }
     return true;
   } catch {
@@ -210,8 +204,8 @@ export async function deleteFile(path: string): Promise<boolean> {
 
 export async function getFileSize(path: string): Promise<number> {
   try {
-    const info = await FileSystem.getInfoAsync(path);
-    return info.exists && 'size' in info ? (info.size as number) : 0;
+    const file = new File(path);
+    return file.exists ? file.size : 0;
   } catch {
     return 0;
   }
@@ -225,4 +219,4 @@ export async function shareFile(path: string): Promise<void> {
   await Sharing.shareAsync(path);
 }
 
-export { SUPPORTED_EXTENSIONS, APP_STORAGE_DIR };
+export { SUPPORTED_EXTENSIONS };

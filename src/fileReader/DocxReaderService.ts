@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 
 export interface DocxReadResult {
   text: string;
@@ -64,8 +64,8 @@ function extractTextFromDocBinary(data: string): string[] {
 
 export async function readDocx(filePath: string): Promise<DocxReadResult> {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
+    const file = new File(filePath);
+    if (!file.exists) {
       throw new Error('NOT_FOUND');
     }
 
@@ -88,9 +88,8 @@ export async function readDocx(filePath: string): Promise<DocxReadResult> {
 }
 
 async function readDocxFile(filePath: string): Promise<DocxReadResult> {
-  const base64 = await FileSystem.readAsStringAsync(filePath, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const file = new File(filePath);
+  const base64 = await file.base64();
 
   const binaryString = atob(base64);
   const paragraphs = extractTextFromDocxXml(binaryString);
@@ -122,9 +121,8 @@ async function readDocxFile(filePath: string): Promise<DocxReadResult> {
 }
 
 async function readDocFile(filePath: string): Promise<DocxReadResult> {
-  const base64 = await FileSystem.readAsStringAsync(filePath, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const file = new File(filePath);
+  const base64 = await file.base64();
 
   const binaryString = atob(base64);
   const paragraphs = extractTextFromDocBinary(binaryString);

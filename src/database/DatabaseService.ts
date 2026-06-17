@@ -129,3 +129,11 @@ export async function resetDatabase(): Promise<void> {
 }
 
 export { getDb };
+
+const DatabaseService = {
+  initialize,
+  resetDatabase,
+  getDb,
+};
+
+export default DatabaseService;

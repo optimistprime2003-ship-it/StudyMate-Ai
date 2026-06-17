@@ -1,4 +1,4 @@
-import { Paths, Directory, EncodingType } from 'expo-file-system';
+import { Paths, Directory, File } from 'expo-file-system';
 import { getDb } from '../database/DatabaseService';
 
 function sanitizeFilename(name: string): string {
@@ -11,9 +11,7 @@ function getExportDir(): Directory {
 
 function ensureExportDir(): Directory {
   const dir = getExportDir();
-  try {
-    dir.list();
-  } catch {
+  if (!dir.exists) {
     Paths.document.createDirectory('exports');
   }
   return dir;
@@ -46,7 +44,7 @@ export async function exportFlashcards(documentId: string): Promise<string> {
   const dir = ensureExportDir();
   const filename = `${sanitizeFilename(docTitle)}_flashcards.txt`;
   const file = dir.createFile(filename, 'text/plain');
-  file.write(content, { encoding: EncodingType.UTF8 });
+  file.write(content);
   return file.uri;
 }
 
@@ -78,7 +76,7 @@ export async function exportNotes(documentId: string): Promise<string> {
   const dir = ensureExportDir();
   const filename = `${sanitizeFilename(docTitle)}_notes.txt`;
   const file = dir.createFile(filename, 'text/plain');
-  file.write(content, { encoding: EncodingType.UTF8 });
+  file.write(content);
   return file.uri;
 }
 
@@ -113,6 +111,6 @@ export async function exportSummary(documentId: string): Promise<string> {
   const dir = ensureExportDir();
   const filename = `${sanitizeFilename(doc.title)}_summary.txt`;
   const file = dir.createFile(filename, 'text/plain');
-  file.write(content, { encoding: EncodingType.UTF8 });
+  file.write(content);
   return file.uri;
 }

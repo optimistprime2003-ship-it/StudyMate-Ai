@@ -8,8 +8,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { useAppStore } from '../src/store/appStore';
 import { lightTheme, darkTheme } from '../src/theme/theme';
-import { DatabaseService } from '../src/database/DatabaseService';
-import { TTSService } from '../src/tts/TTSService';
+import DatabaseService from '../src/database/DatabaseService';
+import TTSService from '../src/tts/TTSService';
 
 SplashScreen.preventAutoHideAsync();
 

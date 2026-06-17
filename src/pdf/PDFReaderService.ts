@@ -1,7 +1,9 @@
-import * as FileSystem from 'expo-file-system';
+import { Paths, Directory, File } from 'expo-file-system';
 import { Document } from '../components/ModuleConnector';
 
-const POSITIONS_DIR = `${FileSystem.documentDirectory}StudyMateDocs/positions/`;
+function getPositionsDir(): Directory {
+  return new Directory(Paths.document, 'StudyMateDocs/positions');
+}
 
 export interface PDFExtractionResult {
   totalPages: number;
@@ -29,11 +31,14 @@ function friendlyError(code: string): string {
   return ERROR_MESSAGES[code] || ERROR_MESSAGES.GENERAL;
 }
 
-async function ensurePositionsDir(): Promise<void> {
-  const dirInfo = await FileSystem.getInfoAsync(POSITIONS_DIR);
-  if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(POSITIONS_DIR, { intermediates: true });
+function ensurePositionsDir(): Directory {
+  const dir = getPositionsDir();
+  if (!dir.exists) {
+    Paths.document.createDirectory('StudyMateDocs');
+    const studyMateDir = new Directory(Paths.document, 'StudyMateDocs');
+    studyMateDir.createDirectory('positions');
   }
+  return dir;
 }
 
 export async function extractPDFText(
@@ -41,14 +46,12 @@ export async function extractPDFText(
   page?: number
 ): Promise<PDFExtractionResult> {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
+    const file = new File(filePath);
+    if (!file.exists) {
       throw new Error('NOT_FOUND');
     }
 
-    const base64 = await FileSystem.readAsStringAsync(filePath, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const base64 = await file.base64();
 
     const textContent = decodePDFBase64(base64);
     const pages = splitIntoPages(textContent);
@@ -158,7 +161,7 @@ export async function saveReadingPosition(
   scrollOffset?: number
 ): Promise<void> {
   try {
-    await ensurePositionsDir();
+    const dir = ensurePositionsDir();
 
     const position: PDFPosition = {
       documentId,
@@ -167,8 +170,9 @@ export async function saveReadingPosition(
       updatedAt: new Date().toISOString(),
     };
 
-    const filePath = `${POSITIONS_DIR}${documentId}.json`;
-    await FileSystem.writeAsStringAsync(filePath, JSON.stringify(position));
+    const filePath = `${dir.uri}${documentId}.json`;
+    const file = dir.createFile(`${documentId}.json`, 'application/json');
+    file.write(JSON.stringify(position));
   } catch {
     // Silently fail - position saving is non-critical
   }
@@ -176,12 +180,12 @@ export async function saveReadingPosition(
 
 export async function loadReadingPosition(documentId: string): Promise<PDFPosition | null> {
   try {
-    const filePath = `${POSITIONS_DIR}${documentId}.json`;
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
+    const dir = getPositionsDir();
+    const file = new File(dir, `${documentId}.json`);
 
-    if (!fileInfo.exists) return null;
+    if (!file.exists) return null;
 
-    const content = await FileSystem.readAsStringAsync(filePath);
+    const content = await file.text();
     return JSON.parse(content) as PDFPosition;
   } catch {
     return null;
@@ -190,10 +194,10 @@ export async function loadReadingPosition(documentId: string): Promise<PDFPositi
 
 export async function deleteReadingPosition(documentId: string): Promise<void> {
   try {
-    const filePath = `${POSITIONS_DIR}${documentId}.json`;
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (fileInfo.exists) {
-      await FileSystem.deleteAsync(filePath);
+    const dir = getPositionsDir();
+    const file = new File(dir, `${documentId}.json`);
+    if (file.exists) {
+      file.delete();
     }
   } catch {
     // Silently fail

@@ -8,7 +8,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "studymate",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",

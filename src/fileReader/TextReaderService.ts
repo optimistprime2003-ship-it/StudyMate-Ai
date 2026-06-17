@@ -1,203 +1,145 @@
 import * as FileSystem from 'expo-file-system';
 
-const CHUNK_SIZE = 50000; // 50,000 characters per chunk
+const CHUNK_SIZE = 50000;
 
-interface TextContent {
+export interface TextReadResult {
   text: string;
-  lineCount: number;
-  charCount: number;
-  chunkCount: number;
-  encoding: string;
+  totalCharacters: number;
+  totalChunks: number;
+  currentChunk: number;
+  isLargeFile: boolean;
 }
 
-interface TextChunk {
+export interface TextChunk {
   chunkIndex: number;
-  content: string;
-  startChar: number;
-  endChar: number;
+  text: string;
+  isLast: boolean;
 }
 
-/**
- * Reads a TXT file and returns its content
- */
-export async function readTxtFile(filePath: string): Promise<TextContent> {
+const ERROR_MESSAGES: Record<string, string> = {
+  NOT_FOUND: 'The text file could not be found.',
+  UNSUPPORTED: 'This text format is not supported.',
+  TOO_LARGE: 'The file is too large to read.',
+  GENERAL: 'An error occurred while reading the text file.',
+};
+
+function friendlyError(code: string): string {
+  return ERROR_MESSAGES[code] || ERROR_MESSAGES.GENERAL;
+}
+
+function stripRtfFormatting(rtfContent: string): string {
+  let text = rtfContent;
+
+  // Remove RTF header and group markers
+  text = text.replace(/\\fonttbl[^}]*}/g, '');
+  text = text.replace(/\\colortbl[^}]*}/g, '');
+  text = text.replace(/\\stylesheet[^}]*}/g, '');
+  text = text.replace(/\{\\[^}]*}/g, '');
+
+  // Remove RTF control words
+  text = text.replace(/\\par[d]?/g, '\n');
+  text = text.replace(/\\line/g, '\n');
+  text = text.replace(/\\tab/g, '\t');
+  text = text.replace(/\\'/g, '');
+  text = text.replace(/\\[a-z]+\d*\s?/g, '');
+  text = text.replace(/[{}]/g, '');
+  text = text.replace(/\\\\/g, '\\');
+
+  // Clean up whitespace
+  text = text.replace(/\n{3,}/g, '\n\n');
+  text = text.trim();
+
+  return text;
+}
+
+export async function readTextFile(filePath: string): Promise<TextReadResult> {
   try {
-    // Verify file exists
     const fileInfo = await FileSystem.getInfoAsync(filePath);
     if (!fileInfo.exists) {
-      throw new Error('TXT file not found');
+      throw new Error('NOT_FOUND');
     }
 
-    // Read entire file
-    const text = await FileSystem.readAsStringAsync(filePath);
+    const ext = filePath.split('.').pop()?.toLowerCase();
 
-    // Count lines and characters
-    const lineCount = text.split('\n').length;
-    const charCount = text.length;
-    const chunkCount = Math.ceil(charCount / CHUNK_SIZE);
-
-    return {
-      text,
-      lineCount,
-      charCount,
-      chunkCount,
-      encoding: 'utf-8',
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read TXT file: ${errorMessage}`);
-  }
-}
-
-/**
- * Reads an RTF file and extracts plain text
- */
-export async function readRtfFile(filePath: string): Promise<TextContent> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('RTF file not found');
-    }
-
-    // Read RTF file
-    const rtfContent = await FileSystem.readAsStringAsync(filePath);
-
-    // Remove RTF control sequences
-    const text = stripRtfFormatting(rtfContent);
-
-    // Count lines and characters
-    const lineCount = text.split('\n').length;
-    const charCount = text.length;
-    const chunkCount = Math.ceil(charCount / CHUNK_SIZE);
-
-    return {
-      text,
-      lineCount,
-      charCount,
-      chunkCount,
-      encoding: 'utf-8',
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read RTF file: ${errorMessage}`);
-  }
-}
-
-/**
- * Strips RTF formatting codes to extract plain text
- */
-function stripRtfFormatting(rtf: string): string {
-  // Remove RTF control words and symbols
-  let text = rtf
-    // Remove control words (e.g., \rtf1, \ansi)
-    .replace(/\\[a-z]+\d*/gi, '')
-    // Remove special control characters
-    .replace(/[{}]/g, '')
-    // Decode some common RTF entities
-    .replace(/\\/g, '')
-    // Clean up multiple spaces
-    .replace(/\s+/g, ' ');
-
-  return text.trim();
-}
-
-/**
- * Reads a file in chunks for handling large files
- */
-export async function readFileInChunks(filePath: string): Promise<TextChunk[]> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('File not found');
-    }
-
-    // Read entire file first
-    const text = await FileSystem.readAsStringAsync(filePath);
-    const chunks: TextChunk[] = [];
-
-    // Split into chunks
-    for (let i = 0; i < text.length; i += CHUNK_SIZE) {
-      const chunkIndex = Math.floor(i / CHUNK_SIZE);
-      const content = text.substring(i, i + CHUNK_SIZE);
-
-      chunks.push({
-        chunkIndex,
-        content,
-        startChar: i,
-        endChar: Math.min(i + CHUNK_SIZE, text.length),
-      });
-    }
-
-    return chunks;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read file in chunks: ${errorMessage}`);
-  }
-}
-
-/**
- * Reads a specific chunk of a file
- */
-export async function readFileChunk(
-  filePath: string,
-  chunkIndex: number
-): Promise<TextChunk | null> {
-  try {
-    const chunks = await readFileInChunks(filePath);
-    return chunks[chunkIndex] || null;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read file chunk: ${errorMessage}`);
-  }
-}
-
-/**
- * Gets line-based content from a text file
- */
-export async function readFileLines(filePath: string): Promise<{
-  lines: string[];
-  totalLines: number;
-}> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('File not found');
-    }
-
-    // Read file
-    const text = await FileSystem.readAsStringAsync(filePath);
-    const lines = text.split('\n');
-
-    return {
-      lines,
-      totalLines: lines.length,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read file lines: ${errorMessage}`);
-  }
-}
-
-/**
- * Extracts text from either TXT or RTF files based on file extension
- */
-export async function extractTextFileContent(filePath: string): Promise<TextContent> {
-  try {
-    const filename = filePath.split('/').pop() || '';
-    const extension = filename.split('.').pop()?.toLowerCase();
-
-    if (extension === 'txt') {
-      return await readTxtFile(filePath);
-    } else if (extension === 'rtf') {
+    if (ext === 'rtf') {
       return await readRtfFile(filePath);
-    } else {
-      throw new Error(`Unsupported format: ${extension}`);
+    } else if (ext === 'txt') {
+      return await readTxtFile(filePath);
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to extract text file content: ${errorMessage}`);
+
+    throw new Error('UNSUPPORTED');
+  } catch (err: any) {
+    const msg = err?.message ?? '';
+    if (msg === 'NOT_FOUND') throw new Error(friendlyError('NOT_FOUND'));
+    if (msg === 'UNSUPPORTED') throw new Error(friendlyError('UNSUPPORTED'));
+    if (msg.toLowerCase().includes('too large')) throw new Error(friendlyError('TOO_LARGE'));
+    throw new Error(friendlyError('GENERAL'));
   }
 }
+
+async function readTxtFile(filePath: string): Promise<TextReadResult> {
+  const content = await FileSystem.readAsStringAsync(filePath);
+  const totalCharacters = content.length;
+  const totalChunks = Math.ceil(totalCharacters / CHUNK_SIZE);
+  const isLargeFile = totalCharacters > CHUNK_SIZE;
+
+  return {
+    text: content,
+    totalCharacters,
+    totalChunks,
+    currentChunk: 1,
+    isLargeFile,
+  };
+}
+
+async function readRtfFile(filePath: string): Promise<TextReadResult> {
+  const rtfContent = await FileSystem.readAsStringAsync(filePath);
+  const text = stripRtfFormatting(rtfContent);
+  const totalCharacters = text.length;
+  const totalChunks = Math.ceil(totalCharacters / CHUNK_SIZE);
+  const isLargeFile = totalCharacters > CHUNK_SIZE;
+
+  return {
+    text,
+    totalCharacters,
+    totalChunks,
+    currentChunk: 1,
+    isLargeFile,
+  };
+}
+
+export function getTextChunk(
+  fullText: string,
+  chunkIndex: number
+): TextChunk {
+  const totalChunks = Math.ceil(fullText.length / CHUNK_SIZE);
+  const clampedIndex = Math.max(0, Math.min(chunkIndex, totalChunks - 1));
+  const start = clampedIndex * CHUNK_SIZE;
+  const end = Math.min(start + CHUNK_SIZE, fullText.length);
+  const text = fullText.substring(start, end);
+
+  return {
+    chunkIndex: clampedIndex,
+    text,
+    isLast: clampedIndex >= totalChunks - 1,
+  };
+}
+
+export function getChunksInRange(
+  fullText: string,
+  startChunk: number,
+  endChunk: number
+): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  const totalChunks = Math.ceil(fullText.length / CHUNK_SIZE);
+  const start = Math.max(0, startChunk);
+  const end = Math.min(endChunk, totalChunks - 1);
+
+  for (let i = start; i <= end; i++) {
+    chunks.push(getTextChunk(fullText, i));
+  }
+
+  return chunks;
+}
+
+export { friendlyError, CHUNK_SIZE };

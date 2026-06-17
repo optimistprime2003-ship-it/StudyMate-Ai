@@ -5,147 +5,166 @@ export interface SlideContent {
   title: string;
   content: string;
   notes: string;
-  hasImages: boolean;
 }
 
-/**
- * Reads PPTX files and extracts text from slides
- */
-export async function readPptxFile(filePath: string): Promise<SlideContent[]> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('PPTX file not found');
-    }
-
-    // PPTX files are ZIP archives containing XML
-    // This would typically use a library to extract and parse the content
-    // For now, returning a placeholder implementation
-
-    // In a real implementation, you would:
-    // 1. Unzip the PPTX file
-    // 2. Parse slide[n].xml files
-    // 3. Extract text from shapes, text boxes, and notes
-    // 4. Detect images on slides
-
-    console.warn('PPTX parsing requires external library - returning placeholder');
-    return [];
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read PPTX file: ${errorMessage}`);
-  }
-}
-
-/**
- * Reads PPT files and extracts text from slides
- */
-export async function readPptFile(filePath: string): Promise<SlideContent[]> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('PPT file not found');
-    }
-
-    // PPT files are binary Microsoft PowerPoint format (OLE2 compound documents)
-    // This requires a library that can parse OLE2 format
-    // For now, returning a placeholder implementation
-
-    console.warn('PPT parsing requires external library - returning placeholder');
-    return [];
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read PPT file: ${errorMessage}`);
-  }
-}
-
-/**
- * Extracts text from either PPTX or PPT files based on file extension
- */
-export async function extractPresentationSlides(
-  filePath: string
-): Promise<{
+export interface PPTXReadResult {
   slides: SlideContent[];
   totalSlides: number;
-  totalTextLength: number;
-}> {
-  try {
-    const filename = filePath.split('/').pop() || '';
-    const extension = filename.split('.').pop()?.toLowerCase();
+}
 
-    let slides: SlideContent[] = [];
-    if (extension === 'pptx') {
-      slides = await readPptxFile(filePath);
-    } else if (extension === 'ppt') {
-      slides = await readPptFile(filePath);
-    } else {
-      throw new Error(`Unsupported format: ${extension}`);
+const ERROR_MESSAGES: Record<string, string> = {
+  NOT_FOUND: 'The presentation file could not be found.',
+  UNSUPPORTED: 'This presentation format is not supported.',
+  CORRUPTED: 'The presentation appears to be corrupted.',
+  EMPTY: 'The presentation has no slides.',
+  GENERAL: 'An error occurred while reading the presentation.',
+};
+
+function friendlyError(code: string): string {
+  return ERROR_MESSAGES[code] || ERROR_MESSAGES.GENERAL;
+}
+
+function extractTextFromXml(xml: string): string {
+  const textParts: string[] = [];
+  const textRegex = /<a:t>([\s\S]*?)<\/a:t>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = textRegex.exec(xml)) !== null) {
+    if (match[1].trim()) {
+      textParts.push(match[1].trim());
+    }
+  }
+
+  return textParts.join(' ');
+}
+
+function extractTitleFromSlideXml(xml: string): string {
+  const titleRegex = /<p:ph[^>]*type="ctrTitle"[^>]*>[\s\S]*?<\/p:ph>/;
+  const hasTitle = titleRegex.test(xml);
+
+  if (!hasTitle) {
+    const altTitleRegex = /<p:ph[^>]*type="title"[^>]*>[\s\S]*?<\/p:ph>/;
+    if (!altTitleRegex.test(xml)) {
+      return '';
+    }
+  }
+
+  return extractTextFromXml(xml);
+}
+
+function extractNotesFromSlideXml(notesXml: string): string {
+  return extractTextFromXml(notesXml);
+}
+
+function parseSlidesFromBinary(binaryString: string): SlideContent[] {
+  const slides: SlideContent[] = [];
+  const slidePattern = /<p:sld[\s\S]*?<\/p:sld>/g;
+  let slideMatch: RegExpExecArray | null;
+  let slideNumber = 1;
+
+  while ((slideMatch = slidePattern.exec(binaryString)) !== null) {
+    const slideXml = slideMatch[0];
+    const title = extractTitleFromSlideXml(slideXml);
+    const content = extractTextFromXml(slideXml);
+    const notes = extractNotesFromSlideXml(slideXml);
+
+    slides.push({
+      slideNumber,
+      title: title || `Slide ${slideNumber}`,
+      content,
+      notes,
+    });
+
+    slideNumber++;
+  }
+
+  return slides;
+}
+
+function parsePptBinary(binaryString: string): SlideContent[] {
+  const slides: SlideContent[] = [];
+  const readableText: string[] = [];
+  const lines = binaryString.split(/[\r\n]+/);
+
+  for (const line of lines) {
+    const clean = line.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+    if (clean.length > 3) {
+      readableText.push(clean);
+    }
+  }
+
+  if (readableText.length === 0) {
+    return [];
+  }
+
+  // Group text into approximate slides (every 5-10 readable lines)
+  const linesPerSlide = 8;
+  for (let i = 0; i < readableText.length; i += linesPerSlide) {
+    const chunk = readableText.slice(i, i + linesPerSlide);
+    const slideNum = Math.floor(i / linesPerSlide) + 1;
+
+    slides.push({
+      slideNumber: slideNum,
+      title: chunk[0] || `Slide ${slideNum}`,
+      content: chunk.join('\n'),
+      notes: '',
+    });
+  }
+
+  return slides;
+}
+
+export async function readPPTX(filePath: string): Promise<PPTXReadResult> {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(filePath);
+    if (!fileInfo.exists) {
+      throw new Error('NOT_FOUND');
     }
 
-    // Calculate total text length
-    const totalTextLength = slides.reduce((sum, slide) => {
-      return sum + slide.title.length + slide.content.length + slide.notes.length;
-    }, 0);
+    const ext = filePath.split('.').pop()?.toLowerCase();
 
-    return {
-      slides,
-      totalSlides: slides.length,
-      totalTextLength,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to extract presentation slides: ${errorMessage}`);
-  }
-}
-
-/**
- * Extracts text from a specific slide
- */
-export async function extractSlideText(filePath: string, slideNumber: number): Promise<string> {
-  try {
-    const result = await extractPresentationSlides(filePath);
-    const slide = result.slides[slideNumber - 1];
-
-    if (!slide) {
-      throw new Error(`Slide ${slideNumber} not found`);
+    if (ext === 'pptx') {
+      return await readPptxFile(filePath);
+    } else if (ext === 'ppt') {
+      return await readPptFile(filePath);
     }
 
-    return `${slide.title}\n\n${slide.content}\n\n${slide.notes}`;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to extract slide text: ${errorMessage}`);
+    throw new Error('UNSUPPORTED');
+  } catch (err: any) {
+    const msg = err?.message ?? '';
+    if (msg === 'NOT_FOUND') throw new Error(friendlyError('NOT_FOUND'));
+    if (msg === 'UNSUPPORTED') throw new Error(friendlyError('UNSUPPORTED'));
+    if (msg.toLowerCase().includes('corrupt')) throw new Error(friendlyError('CORRUPTED'));
+    throw new Error(friendlyError('GENERAL'));
   }
 }
 
-/**
- * Gets total number of slides in a presentation
- */
-export async function getPresentationSlideCount(filePath: string): Promise<number> {
-  try {
-    const result = await extractPresentationSlides(filePath);
-    return result.totalSlides;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to get slide count: ${errorMessage}`);
-  }
+async function readPptxFile(filePath: string): Promise<PPTXReadResult> {
+  const base64 = await FileSystem.readAsStringAsync(filePath, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  const binaryString = atob(base64);
+  const slides = parseSlidesFromBinary(binaryString);
+
+  return {
+    slides,
+    totalSlides: slides.length,
+  };
 }
 
-/**
- * Extracts all text from all slides in a presentation
- */
-export async function extractAllPresentationText(filePath: string): Promise<string> {
-  try {
-    const result = await extractPresentationSlides(filePath);
-    const allText = result.slides
-      .map((slide) => {
-        return `--- Slide ${slide.slideNumber} ---\n${slide.title}\n\n${slide.content}\n\n${slide.notes}`;
-      })
-      .join('\n\n');
+async function readPptFile(filePath: string): Promise<PPTXReadResult> {
+  const base64 = await FileSystem.readAsStringAsync(filePath, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
 
-    return allText;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to extract all presentation text: ${errorMessage}`);
-  }
+  const binaryString = atob(base64);
+  const slides = parsePptBinary(binaryString);
+
+  return {
+    slides,
+    totalSlides: slides.length,
+  };
 }
+
+export { friendlyError };

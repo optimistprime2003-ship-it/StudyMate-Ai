@@ -1,119 +1,140 @@
 import * as FileSystem from 'expo-file-system';
 
-/**
- * Reads DOCX and DOC files and extracts plain text with paragraph structure
- */
-export async function readDocxFile(filePath: string): Promise<string> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('DOCX file not found');
-    }
-
-    // DOCX files are ZIP archives containing XML
-    // This would typically use a library like docx-parser or similar
-    // For now, returning a placeholder implementation
-    
-    // In a real implementation, you would:
-    // 1. Unzip the DOCX file
-    // 2. Parse the document.xml file
-    // 3. Extract text from paragraphs and text runs
-    // 4. Preserve formatting information
-
-    console.warn('DOCX parsing requires external library - returning placeholder');
-    return 'DOCX content would be extracted here';
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read DOCX file: ${errorMessage}`);
-  }
-}
-
-/**
- * Reads DOC files and extracts plain text
- */
-export async function readDocFile(filePath: string): Promise<string> {
-  try {
-    // Verify file exists
-    const fileInfo = await FileSystem.getInfoAsync(filePath);
-    if (!fileInfo.exists) {
-      throw new Error('DOC file not found');
-    }
-
-    // DOC files are binary Microsoft Word format
-    // This requires a library that can parse OLE2 compound documents
-    // For now, returning a placeholder implementation
-
-    console.warn('DOC parsing requires external library - returning placeholder');
-    return 'DOC content would be extracted here';
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to read DOC file: ${errorMessage}`);
-  }
-}
-
-/**
- * Extracts text from either DOCX or DOC files based on file extension
- */
-export async function extractDocumentText(filePath: string): Promise<{
+export interface DocxReadResult {
   text: string;
   paragraphs: string[];
   wordCount: number;
-}> {
-  try {
-    const filename = filePath.split('/').pop() || '';
-    const extension = filename.split('.').pop()?.toLowerCase();
+}
 
-    let text = '';
-    if (extension === 'docx') {
-      text = await readDocxFile(filePath);
-    } else if (extension === 'doc') {
-      text = await readDocFile(filePath);
-    } else {
-      throw new Error(`Unsupported format: ${extension}`);
+const ERROR_MESSAGES: Record<string, string> = {
+  NOT_FOUND: 'The document file could not be found.',
+  UNSUPPORTED: 'This file format is not supported for reading.',
+  CORRUPTED: 'The document appears to be corrupted.',
+  EMPTY: 'The document is empty.',
+  GENERAL: 'An error occurred while reading the document.',
+};
+
+function friendlyError(code: string): string {
+  return ERROR_MESSAGES[code] || ERROR_MESSAGES.GENERAL;
+}
+
+function extractTextFromDocxXml(xml: string): string[] {
+  const paragraphs: string[] = [];
+  const paragraphRegex = /<w:p[^>]*>([\s\S]*?)<\/w:p>/g;
+  let pMatch: RegExpExecArray | null;
+
+  while ((pMatch = paragraphRegex.exec(xml)) !== null) {
+    const runRegex = /<w:r[^>]*>([\s\S]*?)<\/w:r>/g;
+    const textParts: string[] = [];
+    let rMatch: RegExpExecArray | null;
+
+    while ((rMatch = runRegex.exec(pMatch[1])) !== null) {
+      const textRegex = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+      let tMatch: RegExpExecArray | null;
+      while ((tMatch = textRegex.exec(rMatch[1])) !== null) {
+        textParts.push(tMatch[1]);
+      }
     }
 
-    // Split into paragraphs
-    const paragraphs = text
-      .split('\n\n')
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+    const paragraphText = textParts.join('');
+    if (paragraphText.trim().length > 0) {
+      paragraphs.push(paragraphText);
+    }
+  }
 
-    // Count words
-    const wordCount = text
-      .split(/\s+/)
-      .filter((word) => word.length > 0).length;
+  return paragraphs;
+}
 
+function extractTextFromDocBinary(data: string): string[] {
+  const paragraphs: string[] = [];
+  const lines = data.split(/[\r\n]+/).filter((line) => {
+    const clean = line.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+    return clean.length > 2;
+  });
+
+  for (const line of lines) {
+    const clean = line.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+    if (clean.length > 0) {
+      paragraphs.push(clean);
+    }
+  }
+
+  return paragraphs;
+}
+
+export async function readDocx(filePath: string): Promise<DocxReadResult> {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(filePath);
+    if (!fileInfo.exists) {
+      throw new Error('NOT_FOUND');
+    }
+
+    const ext = filePath.split('.').pop()?.toLowerCase();
+
+    if (ext === 'docx') {
+      return await readDocxFile(filePath);
+    } else if (ext === 'doc') {
+      return await readDocFile(filePath);
+    }
+
+    throw new Error('UNSUPPORTED');
+  } catch (err: any) {
+    const msg = err?.message ?? '';
+    if (msg === 'NOT_FOUND') throw new Error(friendlyError('NOT_FOUND'));
+    if (msg === 'UNSUPPORTED') throw new Error(friendlyError('UNSUPPORTED'));
+    if (msg.toLowerCase().includes('corrupt')) throw new Error(friendlyError('CORRUPTED'));
+    throw new Error(friendlyError('GENERAL'));
+  }
+}
+
+async function readDocxFile(filePath: string): Promise<DocxReadResult> {
+  const base64 = await FileSystem.readAsStringAsync(filePath, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  const binaryString = atob(base64);
+  const paragraphs = extractTextFromDocxXml(binaryString);
+
+  if (paragraphs.length === 0) {
+    const xmlContent = binaryString;
+    const fallbackParagraphs = extractTextFromDocxXml(xmlContent);
+    if (fallbackParagraphs.length === 0) {
+      return {
+        text: '',
+        paragraphs: [],
+        wordCount: 0,
+      };
+    }
+    const text = fallbackParagraphs.join('\n\n');
     return {
       text,
-      paragraphs,
-      wordCount,
+      paragraphs: fallbackParagraphs,
+      wordCount: text.split(/\s+/).filter((w) => w.length > 0).length,
     };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to extract document text: ${errorMessage}`);
   }
+
+  const text = paragraphs.join('\n\n');
+  return {
+    text,
+    paragraphs,
+    wordCount: text.split(/\s+/).filter((w) => w.length > 0).length,
+  };
 }
 
-/**
- * Gets document metadata (title, author, creation date, etc.)
- */
-export async function getDocumentMetadata(
-  filePath: string
-): Promise<Record<string, string>> {
-  try {
-    // This would extract metadata from the document properties
-    // Placeholder implementation
-    return {
-      title: '',
-      author: '',
-      createdDate: '',
-      modifiedDate: '',
-      subject: '',
-      keywords: '',
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to get document metadata: ${errorMessage}`);
-  }
+async function readDocFile(filePath: string): Promise<DocxReadResult> {
+  const base64 = await FileSystem.readAsStringAsync(filePath, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  const binaryString = atob(base64);
+  const paragraphs = extractTextFromDocBinary(binaryString);
+
+  const text = paragraphs.join('\n\n');
+  return {
+    text,
+    paragraphs,
+    wordCount: text.split(/\s+/).filter((w) => w.length > 0).length,
+  };
 }
+
+export { friendlyError };

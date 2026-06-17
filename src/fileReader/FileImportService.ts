@@ -1,23 +1,11 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Document, DocumentType } from '../components/ModuleConnector';
 
-// Accepted file types
-const ACCEPTED_MIME_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'text/plain',
-  'application/rtf',
-  'application/epub+zip',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-];
+const APP_STORAGE_DIR = `${FileSystem.documentDirectory}StudyMateDocs/`;
 
-const ACCEPTED_FILE_EXTENSIONS = [
+const SUPPORTED_EXTENSIONS: DocumentType[] = [
   'pdf',
   'doc',
   'docx',
@@ -32,189 +20,209 @@ const ACCEPTED_FILE_EXTENSIONS = [
   'webp',
 ];
 
-const APP_LOCAL_STORAGE_DIR = `${FileSystem.documentDirectory}StudyMateDocuments/`;
+const MIME_MAP: Record<string, DocumentType> = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'text/plain': 'txt',
+  'application/rtf': 'rtf',
+  'text/rtf': 'rtf',
+  'application/epub+zip': 'epub',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
 
-/**
- * Determines the document type based on file extension or MIME type
- */
-function getDocumentType(filename: string, mimeType?: string): DocumentType {
-  const ext = filename.split('.').pop()?.toLowerCase();
+const ERROR_MESSAGES: Record<string, string> = {
+  PICKER_CANCELLED: 'No file was selected.',
+  UNSUPPORTED_TYPE: 'This file type is not supported. Please choose a supported format.',
+  COPY_FAILED: 'Could not save the file to your device. Please try again.',
+  NO_PERMISSION: 'Permission denied. Please allow file access in your device settings.',
+  FILE_TOO_LARGE: 'This file is too large to import. Maximum size is 500 MB.',
+  GENERAL: 'Something went wrong while importing the file. Please try again.',
+};
 
-  if (ext === 'pdf') return 'pdf';
-  if (ext === 'docx' || ext === 'doc') return 'docx';
-  if (ext === 'pptx' || ext === 'ppt') return 'pptx';
-  if (ext === 'txt') return 'txt';
-  if (ext === 'epub') return 'epub';
-  if (ext === 'rtf') return 'txt';
-  if (['jpg', 'jpeg', 'png', 'webp'].includes(ext || '')) return 'image';
-
-  // Fallback to MIME type detection
-  if (mimeType?.includes('pdf')) return 'pdf';
-  if (mimeType?.includes('word')) return 'docx';
-  if (mimeType?.includes('powerpoint')) return 'pptx';
-  if (mimeType?.includes('text')) return 'txt';
-  if (mimeType?.includes('epub')) return 'epub';
-  if (mimeType?.includes('image')) return 'image';
-
-  throw new Error(`Unsupported file type: ${ext || 'unknown'}`);
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
-/**
- * Validates file type
- */
-function isValidFileType(filename: string, mimeType?: string): boolean {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  return ACCEPTED_FILE_EXTENSIONS.includes(ext || '') || ACCEPTED_MIME_TYPES.includes(mimeType || '');
+function getExtensionFromName(fileName: string): string {
+  const parts = fileName.split('.');
+  if (parts.length < 2) return '';
+  return parts[parts.length - 1].toLowerCase();
 }
 
-/**
- * Initializes app local storage directory
- */
-async function ensureStorageDirectory(): Promise<void> {
-  try {
-    const dirInfo = await FileSystem.getInfoAsync(APP_LOCAL_STORAGE_DIR);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(APP_LOCAL_STORAGE_DIR, { intermediates: true });
-    }
-  } catch (error) {
-    throw new Error(`Failed to initialize storage directory: ${error}`);
+function resolveDocumentType(
+  mimeType: string | null,
+  fileName: string
+): DocumentType | null {
+  if (mimeType && MIME_MAP[mimeType]) {
+    return MIME_MAP[mimeType];
+  }
+  const ext = getExtensionFromName(fileName);
+  if (SUPPORTED_EXTENSIONS.includes(ext as DocumentType)) {
+    return ext as DocumentType;
+  }
+  return null;
+}
+
+async function ensureStorageDir(): Promise<void> {
+  const dirInfo = await FileSystem.getInfoAsync(APP_STORAGE_DIR);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(APP_STORAGE_DIR, { intermediates: true });
   }
 }
 
-/**
- * Generates a unique filename to avoid conflicts
- */
-function generateUniqueFilename(originalName: string): string {
-  const timestamp = Date.now();
-  const ext = originalName.split('.').pop();
-  const nameWithoutExt = originalName.substring(0, originalName.lastIndexOf('.'));
-  return `${nameWithoutExt}_${timestamp}.${ext}`;
+function friendlyError(code: string): string {
+  return ERROR_MESSAGES[code] || ERROR_MESSAGES.GENERAL;
 }
 
-/**
- * Opens the file picker and imports selected file
- */
-export async function pickAndImportFile(): Promise<Document> {
-  try {
-    await ensureStorageDirectory();
+export interface ImportResult {
+  success: boolean;
+  document?: Document;
+  error?: string;
+}
 
-    // Open document picker
+export async function importFile(): Promise<ImportResult> {
+  try {
     const result = await DocumentPicker.getDocumentAsync({
-      type: ACCEPTED_MIME_TYPES,
-      copyToCacheDirectory: false,
+      type: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'text/plain',
+        'application/rtf',
+        'text/rtf',
+        'application/epub+zip',
+        'image/*',
+      ],
+      copyToCacheDirectory: true,
     });
 
     if (result.canceled) {
-      throw new Error('File selection was canceled');
+      return { success: false, error: friendlyError('PICKER_CANCELLED') };
     }
 
     const asset = result.assets[0];
-
     if (!asset) {
-      throw new Error('No file selected');
+      return { success: false, error: friendlyError('GENERAL') };
     }
 
-    // Validate file type
-    if (!isValidFileType(asset.name, asset.mimeType)) {
-      throw new Error(
-        `File type not supported. Accepted: PDF, DOC, DOCX, PPT, PPTX, TXT, RTF, EPUB, JPG, JPEG, PNG, WEBP`
-      );
+    const docType = resolveDocumentType(asset.mimeType ?? null, asset.name);
+    if (!docType) {
+      return { success: false, error: friendlyError('UNSUPPORTED_TYPE') };
     }
 
-    // Get file info (size, etc.)
-    const fileInfo = await FileSystem.getInfoAsync(asset.uri);
-
-    if (!fileInfo.exists) {
-      throw new Error('Selected file no longer exists');
+    if (asset.size && asset.size > 500 * 1024 * 1024) {
+      return { success: false, error: friendlyError('FILE_TOO_LARGE') };
     }
 
-    // Generate unique filename and copy to app storage
-    const uniqueFilename = generateUniqueFilename(asset.name);
-    const destinationPath = `${APP_LOCAL_STORAGE_DIR}${uniqueFilename}`;
+    await ensureStorageDir();
 
-    await FileSystem.copyAsync({
+    const safeName = asset.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const destPath = `${APP_STORAGE_DIR}${generateId()}_${safeName}`;
+
+    const copyResult = await FileSystem.copyAsync({
       from: asset.uri,
-      to: destinationPath,
+      to: destPath,
     });
 
-    // Create document object
-    const documentType = getDocumentType(asset.name, asset.mimeType);
-    const document: Document = {
-      id: generateUniqueFilename(asset.name).split('.')[0],
-      title: asset.name,
-      type: documentType,
-      path: destinationPath,
-      size: fileInfo.size || 0,
-      createdAt: Date.now(),
-      lastOpened: Date.now(),
-    };
-
-    return document;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to import file: ${errorMessage}`);
-  }
-}
-
-/**
- * Gets a list of all imported documents in app storage
- */
-export async function getImportedDocuments(): Promise<Document[]> {
-  try {
-    await ensureStorageDirectory();
-
-    const files = await FileSystem.readDirectoryAsync(APP_LOCAL_STORAGE_DIR);
-    const documents: Document[] = [];
-
-    for (const filename of files) {
-      try {
-        const fullPath = `${APP_LOCAL_STORAGE_DIR}${filename}`;
-        const fileInfo = await FileSystem.getInfoAsync(fullPath);
-
-        if (fileInfo.exists && !fileInfo.isDirectory) {
-          const docType = getDocumentType(filename);
-          const document: Document = {
-            id: filename.split('.')[0],
-            title: filename,
-            type: docType,
-            path: fullPath,
-            size: fileInfo.size || 0,
-            createdAt: fileInfo.modificationTime ? fileInfo.modificationTime * 1000 : Date.now(),
-            lastOpened: fileInfo.modificationTime ? fileInfo.modificationTime * 1000 : Date.now(),
-          };
-          documents.push(document);
-        }
-      } catch (error) {
-        console.warn(`Failed to process file ${filename}:`, error);
+    if (!copyResult) {
+      const destInfo = await FileSystem.getInfoAsync(destPath);
+      if (!destInfo.exists) {
+        return { success: false, error: friendlyError('COPY_FAILED') };
       }
     }
 
-    return documents.sort((a, b) => b.lastOpened - a.lastOpened);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to retrieve documents: ${errorMessage}`);
+    const fileInfo = await FileSystem.getInfoAsync(destPath);
+    const fileSize = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size as number) : asset.size ?? 0;
+
+    const document: Document = {
+      id: generateId(),
+      title: asset.name.replace(/\.[^/.]+$/, ''),
+      type: docType,
+      path: destPath,
+      size: fileSize,
+      createdAt: new Date().toISOString(),
+    };
+
+    return { success: true, document };
+  } catch (err: any) {
+    const msg = err?.message ?? '';
+    if (msg.toLowerCase().includes('permission')) {
+      return { success: false, error: friendlyError('NO_PERMISSION') };
+    }
+    return { success: false, error: friendlyError('GENERAL') };
   }
 }
 
-/**
- * Deletes a document from app storage
- */
-export async function deleteDocument(path: string): Promise<void> {
+export async function importSharedFile(sharedUri: string, fileName: string): Promise<ImportResult> {
   try {
-    await FileSystem.deleteAsync(path, { idempotent: true });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    throw new Error(`Failed to delete document: ${errorMessage}`);
+    const docType = resolveDocumentType(null, fileName);
+    if (!docType) {
+      return { success: false, error: friendlyError('UNSUPPORTED_TYPE') };
+    }
+
+    await ensureStorageDir();
+
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const destPath = `${APP_STORAGE_DIR}${generateId()}_${safeName}`;
+
+    await FileSystem.copyAsync({
+      from: sharedUri,
+      to: destPath,
+    });
+
+    const fileInfo = await FileSystem.getInfoAsync(destPath);
+    const fileSize = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size as number) : 0;
+
+    const document: Document = {
+      id: generateId(),
+      title: fileName.replace(/\.[^/.]+$/, ''),
+      type: docType,
+      path: destPath,
+      size: fileSize,
+      createdAt: new Date().toISOString(),
+    };
+
+    return { success: true, document };
+  } catch {
+    return { success: false, error: friendlyError('GENERAL') };
   }
 }
 
-/**
- * Gets file size in human-readable format
- */
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+export async function deleteFile(path: string): Promise<boolean> {
+  try {
+    const info = await FileSystem.getInfoAsync(path);
+    if (info.exists) {
+      await FileSystem.deleteAsync(path);
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
+
+export async function getFileSize(path: string): Promise<number> {
+  try {
+    const info = await FileSystem.getInfoAsync(path);
+    return info.exists && 'size' in info ? (info.size as number) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function shareFile(path: string): Promise<void> {
+  const available = await Sharing.isAvailableAsync();
+  if (!available) {
+    throw new Error('Sharing is not available on this device.');
+  }
+  await Sharing.shareAsync(path);
+}
+
+export { SUPPORTED_EXTENSIONS, APP_STORAGE_DIR };

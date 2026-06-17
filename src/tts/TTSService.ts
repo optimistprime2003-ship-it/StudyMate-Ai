@@ -1,4 +1,4 @@
-import Tts from 'react-native-tts';
+import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface TTSVoice {
@@ -34,56 +34,8 @@ class TTSServiceClass {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-
-    await Tts.getInitStatus().catch(async () => {
-      await Tts.requestInstallEngine();
-    });
-
     this.preferences = await this.loadPreferences();
-
-    Tts.setDefaultRate(this.preferences.speed);
-    Tts.setDefaultPitch(this.preferences.pitch);
-    if (this.preferences.voiceId) {
-      Tts.setDefaultVoice(this.preferences.voiceId);
-    }
-
-    Tts.addEventListener('tts-start', () => {
-      this.isSpeaking = true;
-      this.isPaused = false;
-    });
-
-    Tts.addEventListener('tts-finish', () => {
-      this.isSpeaking = false;
-      this.isPaused = false;
-    });
-
-    Tts.addEventListener('tts-cancel', () => {
-      this.isSpeaking = false;
-      this.isPaused = false;
-    });
-
-    Tts.addEventListener('tts-progress', (event) => {
-      if (this.boundaryCallback && event?.utteranceId !== undefined) {
-        const utteranceStr = String(event.utteranceId);
-        const match = utteranceStr.match(/sentence_(\d+)/);
-        if (match) {
-          const idx = parseInt(match[1], 10);
-          this.currentSentenceIndex = idx;
-          this.boundaryCallback(idx);
-        }
-      }
-    });
-
     this.initialized = true;
-  }
-
-  private findSentenceIndex(spokenText: string): number {
-    for (let i = 0; i < this.sentences.length; i++) {
-      if (this.sentences[i].includes(spokenText) || spokenText.includes(this.sentences[i])) {
-        return i;
-      }
-    }
-    return this.currentSentenceIndex;
   }
 
   async speak(text: string): Promise<void> {
@@ -92,22 +44,39 @@ class TTSServiceClass {
     this.sentences = this.splitIntoSentences(text);
     this.currentSentenceIndex = 0;
 
-    await Tts.stop();
+    Speech.stop();
     this.isPaused = false;
+    this.isSpeaking = true;
 
     for (let i = 0; i < this.sentences.length; i++) {
-      Tts.speak(this.sentences[i], {
-        iosVoiceId: `sentence_${i}`,
-        rate: this.preferences.speed,
-        androidParams: {
-          KEY_PARAM_STREAM: 'STREAM_MUSIC',
-          KEY_PARAM_VOLUME: 1.0,
-          KEY_PARAM_PAN: 0,
-        },
-      });
+      await this.speakSentence(this.sentences[i], i);
+      if (!this.isSpeaking) break;
     }
 
-    this.isSpeaking = true;
+    this.isSpeaking = false;
+  }
+
+  private async speakSentence(sentence: string, index: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.currentSentenceIndex = index;
+      if (this.boundaryCallback) {
+        this.boundaryCallback(index);
+      }
+
+      const options: Speech.SpeechOptions = {
+        rate: this.preferences.speed,
+        pitch: this.preferences.pitch,
+        onDone: () => resolve(),
+        onStopped: () => resolve(),
+        onError: () => resolve(),
+      };
+
+      if (this.preferences.voiceId) {
+        options.voice = this.preferences.voiceId;
+      }
+
+      Speech.speak(sentence, options);
+    });
   }
 
   async speakFromPosition(text: string, startSentence: number): Promise<void> {
@@ -116,34 +85,28 @@ class TTSServiceClass {
     this.sentences = this.splitIntoSentences(text);
     this.currentSentenceIndex = startSentence;
 
-    await Tts.stop();
+    Speech.stop();
     this.isPaused = false;
+    this.isSpeaking = true;
 
     for (let i = startSentence; i < this.sentences.length; i++) {
-      Tts.speak(this.sentences[i], {
-        iosVoiceId: `sentence_${i}`,
-        rate: this.preferences.speed,
-        androidParams: {
-          KEY_PARAM_STREAM: 'STREAM_MUSIC',
-          KEY_PARAM_VOLUME: 1.0,
-          KEY_PARAM_PAN: 0,
-        },
-      });
+      await this.speakSentence(this.sentences[i], i);
+      if (!this.isSpeaking) break;
     }
 
-    this.isSpeaking = true;
+    this.isSpeaking = false;
   }
 
   pause(): void {
     if (this.isSpeaking && !this.isPaused) {
-      Tts.stop();
+      Speech.stop();
       this.isPaused = true;
       this.isSpeaking = false;
     }
   }
 
   stop(): void {
-    Tts.stop();
+    Speech.stop();
     this.isSpeaking = false;
     this.isPaused = false;
     this.currentSentenceIndex = 0;
@@ -159,27 +122,24 @@ class TTSServiceClass {
   setSpeed(rate: number): void {
     const clamped = Math.max(0.5, Math.min(2.0, rate));
     this.preferences.speed = clamped;
-    Tts.setDefaultRate(clamped, true);
   }
 
   setVoice(voiceId: string): void {
     this.preferences.voiceId = voiceId;
-    Tts.setDefaultVoice(voiceId);
   }
 
   setPitch(pitch: number): void {
     const clamped = Math.max(0.5, Math.min(2.0, pitch));
     this.preferences.pitch = clamped;
-    Tts.setDefaultPitch(clamped);
   }
 
   async getAvailableVoices(): Promise<TTSVoice[]> {
-    const voices = await Tts.voices();
+    const voices = await Speech.getAvailableVoicesAsync();
     return voices
-      .filter((v: any) => !v.networkConnectionRequired)
-      .map((v: any) => ({
-        id: v.id,
-        name: v.name,
+      .filter((v) => !v.networkConnectionRequired)
+      .map((v) => ({
+        id: v.identifier || v.language,
+        name: v.name || v.language,
         language: v.language,
       }));
   }
